@@ -3,7 +3,7 @@ const Ride = require('../models/Ride');
 const Driver = require('../models/Driver');
 const { auth } = require('../middleware/auth');
 const router = express.Router();
-
+// /suxrob
 const calcDist = (p1, p2) => {
   const R = 6371, dLat = (p2.lat - p1.lat) * Math.PI / 180, dLon = (p2.lng - p1.lng) * Math.PI / 180;
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
