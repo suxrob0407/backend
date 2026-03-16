@@ -25,7 +25,10 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (mobile apps, Postman)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || process.env.NODE_ENV === "development") {
+      if (
+        allowedOrigins.includes(origin) ||
+        process.env.NODE_ENV === "development"
+      ) {
         return callback(null, true);
       }
       return callback(new Error("CORS not allowed"), false);
@@ -50,7 +53,23 @@ app.use((req, res, next) => {
 
 mongoose
   .connect(process.env.MONGODB_URI)
-  .then(() => console.log("✅ MongoDB ulandi"))
+  .then(async () => {
+    console.log("✅ MongoDB ulandi");
+    // Qolib ketgan safarlarni tozalaymiz (1 soatdan eski accepted/in_progress)
+    try {
+      const Ride = require("./models/Ride");
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const result = await Ride.updateMany(
+        {
+          status: { $in: ["accepted", "in_progress"] },
+          requestedAt: { $lt: oneHourAgo },
+        },
+        { $set: { status: "cancelled" } },
+      );
+      if (result.modifiedCount > 0)
+        console.log(`🧹 ${result.modifiedCount} ta eski safar tozalandi`);
+    } catch {}
+  })
   .catch((err) => console.error("❌ MongoDB xatosi:", err));
 
 app.use("/api/auth", authRoutes);
@@ -94,6 +113,16 @@ io.on("connection", (socket) => {
       if (!driver || driver.status !== "online") return;
       if (driver.rideLimit !== null && driver.ridesLeft <= 0) return;
 
+      // Haydovchi hozir band emasmi?
+      const activeBusy = await Ride.findOne({
+        driver: driver._id,
+        status: { $in: ["accepted", "in_progress"] },
+      });
+      if (activeBusy) {
+        console.log(`⏭ Haydovchi ${driverId} band — ride yuborilmadi`);
+        return;
+      }
+
       // Eng oxirgi searching rideni topamiz
       const pendingRide = await Ride.findOne({ status: "searching" })
         .populate("passenger", "name phone rating")
@@ -101,9 +130,12 @@ io.on("connection", (socket) => {
 
       if (pendingRide) {
         console.log(
-          `📡 Haydovchi ${driverId} ulanish bilanoq ride yuborildi: ${pendingRide._id}`,
+          `📡 Haydovchi ${driverId} ulanish bilanoq ride yuboriladi: ${pendingRide._id}`,
         );
-        socket.emit("ride:incoming", pendingRide);
+        setTimeout(() => {
+          socket.emit("ride:incoming", pendingRide);
+          console.log(`✅ ride:incoming yuborildi → ${driverId}`);
+        }, 200);
       }
     } catch (err) {
       console.error("Driver register error:", err.message);

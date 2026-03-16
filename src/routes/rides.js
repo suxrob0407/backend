@@ -107,14 +107,19 @@ router.post('/', auth, async (req, res) => {
           return;
         }
 
-        // Bu haydovchi hozir boshqa aktiv ridega band emasmi?
-        const driverBusy = await Ride.findOne({
-          driver: driver._id,
-          status: { $in: ['accepted', 'in_progress'] }
-        });
-        if (driverBusy) {
-          console.log(`⏭ ${driver.userId} band (boshqa safarida) — o\'tkazib yuborildi`);
-          continue;
+        // Haydovchi haqiqatan band? — faqat so'nggi 2 soat ichidagi aktiv safarni tekshir
+        const driverDoc = await Driver.findOne({ user: driver.userId });
+        if (driverDoc) {
+          const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+          const driverBusy = await Ride.findOne({
+            driver: driverDoc._id,
+            status: { $in: ['accepted', 'in_progress'] },
+            requestedAt: { $gte: twoHoursAgo }
+          });
+          if (driverBusy) {
+            console.log(`⏭ ${driver.userId} band (aktiv safar: ${driverBusy._id}) → keyingisi`);
+            continue;
+          }
         }
 
         triedDrivers.add(driver.userId);
