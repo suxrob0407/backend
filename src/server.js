@@ -16,24 +16,10 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST", "PUT", "DELETE"] },
 });
 
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",")
-  : ["http://localhost:3000"];
-
+// ✅ CORS - barcha originlarga ruxsat
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, Postman)
-      if (!origin) return callback(null, true);
-      if (
-        allowedOrigins.includes(origin) ||
-        process.env.NODE_ENV === "development"
-      ) {
-        return callback(null, true);
-      }
-      return callback(new Error("CORS not allowed"), false);
-    },
-    credentials: true,
+    origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
@@ -55,7 +41,6 @@ mongoose
   .connect(process.env.MONGODB_URI)
   .then(async () => {
     console.log("✅ MongoDB ulandi");
-    // Qolib ketgan safarlarni tozalaymiz (1 soatdan eski accepted/in_progress)
     try {
       const Ride = require("./models/Ride");
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
@@ -79,8 +64,6 @@ app.use("/api/admin", adminRoutes);
 app.get("/", (req, res) => res.json({ message: "🚖 TaxiGo API ishlamoqda" }));
 
 io.on("connection", (socket) => {
-  // Haydovchi o'zini ro'yxatdan o'tkazadi
-  // Rad etilgan rideler - rideId: [userId1, userId2, ...]
   if (!io.rejectedRides) io.rejectedRides = {};
 
   socket.on("ride:rejected", ({ rideId }) => {
@@ -91,7 +74,6 @@ io.on("connection", (socket) => {
     if (!io.rejectedRides[rideId]) io.rejectedRides[rideId] = new Set();
     io.rejectedRides[rideId].add(driverId);
     console.log(`❌ Haydovchi ${driverId} ride ${rideId} ni rad etdi`);
-    // rides.js dagi listener ga xabar beramiz
     socket.to("server").emit(`ride:rejected:${rideId}`, { driverId });
     io.emit(`ride:rejected:${rideId}`, { driverId });
   });
@@ -102,18 +84,12 @@ io.on("connection", (socket) => {
     console.log(
       `🚗 Haydovchi ulandi: ${driverId} | Jami haydovchilar: ${Object.keys(driverSockets).length}`,
     );
-
-    // Haydovchi ulanganida — kutayotgan ride bormi tekshiramiz
     try {
       const Driver = require("./models/Driver");
       const Ride = require("./models/Ride");
-
-      // Bu haydovchining Driver doc ni topamiz (user ID orqali)
       const driver = await Driver.findOne({ user: driverId });
       if (!driver || driver.status !== "online") return;
       if (driver.rideLimit !== null && driver.ridesLeft <= 0) return;
-
-      // Haydovchi hozir band emasmi?
       const activeBusy = await Ride.findOne({
         driver: driver._id,
         status: { $in: ["accepted", "in_progress"] },
@@ -122,19 +98,15 @@ io.on("connection", (socket) => {
         console.log(`⏭ Haydovchi ${driverId} band — ride yuborilmadi`);
         return;
       }
-
-      // Eng oxirgi searching rideni topamiz
       const pendingRide = await Ride.findOne({ status: "searching" })
         .populate("passenger", "name phone rating")
         .sort({ requestedAt: -1 });
-
       if (pendingRide) {
         console.log(
           `📡 Haydovchi ${driverId} ulanish bilanoq ride yuboriladi: ${pendingRide._id}`,
         );
         setTimeout(() => {
           socket.emit("ride:incoming", pendingRide);
-          console.log(`✅ ride:incoming yuborildi → ${driverId}`);
         }, 200);
       }
     } catch (err) {
@@ -142,14 +114,12 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Yo'lovchi o'zini ro'yxatdan o'tkazadi
   socket.on("passenger:register", (userId) => {
     passengerSockets[userId] = socket.id;
     socket.join(`passenger:${userId}`);
     console.log(`👤 Yo'lovchi ulandi: ${userId}`);
   });
 
-  // Yangi safar — barcha online haydovchilarga
   socket.on("ride:new", (rideData) => {
     console.log("🆕 Yangi safar:", rideData._id);
     Object.values(driverSockets).forEach((sid) => {
@@ -157,7 +127,6 @@ io.on("connection", (socket) => {
     });
   });
 
-  // Safar qabul qilindi — yo'lovchiga
   socket.on("ride:accepted", ({ rideId, passengerId, driverInfo }) => {
     if (passengerSockets[passengerId]) {
       io.to(passengerSockets[passengerId]).emit("ride:accepted", {
@@ -167,7 +136,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Holat yangilandi — yo'lovchiga
   socket.on("ride:statusUpdate", ({ rideId, status, passengerId }) => {
     if (passengerSockets[passengerId]) {
       io.to(passengerSockets[passengerId]).emit(`ride:status:${rideId}`, {
@@ -176,7 +144,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Haydovchi lokatsiyasi — yo'lovchiga real-time
   socket.on("driver:location", ({ rideId, passengerId, lat, lng }) => {
     if (passengerSockets[passengerId]) {
       io.to(passengerSockets[passengerId]).emit("driver:location", {
